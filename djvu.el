@@ -22,10 +22,11 @@
 ;; TODO update `djvu-mouse-rect-area', `djvu-mouse-text-area-internal',
 ;;`djvu-mouse-line-area-arrow' and `djvu-mouse-line-area-internal' functions
 ;; (see `djvu2.el`)
-;; TODO add cliackable links by adding `:map' keyword to `create-image' as follows:
+;; DONE add clickable links by adding `:map' keyword to `create-image' as follows:
 ;; :map '(((rect . ((0 . 0) . (100 . 100))) area4 (:pointer hand)))
 
 
+(require 'djvu)
 (require 'svg)
 (require 'tablist)
 
@@ -36,6 +37,9 @@
   :group 'djvu
   :type 'string)
 
+(defvar-local djvu-doc-hotspots nil
+  "Hotspots (i.e. cliackable links) of current page of a Djvu document.
+This is a list.")
 
 ;;; Annotations
 
@@ -99,9 +103,9 @@ Otherwise remove the image."
           (let (buffer-read-only)
             (remove-text-properties (point-min) (point-max) '(display nil))))
     ;; Update image if necessary.
-    (if (or update (not (eq (djvu-ref page) (car (djvu-ref image))))
-            (and isize
-                 (not (eq isize (nth 1 (djvu-ref image))))))
+      (when (or update (not (eq (djvu-ref page) (car (djvu-ref image))))
+                (and isize
+                     (not (eq isize (nth 1 (djvu-ref image))))))
         (let ((isize (or isize
                          (nth 1 (djvu-ref image))
                          djvu-image-size))
@@ -125,7 +129,8 @@ Otherwise remove the image."
                                         'pbm t))
                      (size (image-size ppm t))
                      (scaling-factor (/ isize (float (cdr (djvu-ref pagesize doc)))))
-                     (svg (svg-create (car size) (cdr size))))
+                     (svg (svg-create (car size) (cdr size)))
+                     url-data)
                 (svg-embed svg (image-property ppm :data) "image/x-portable-bitmap" t
                            :width (format "%spx" (car size)) :height (format "%spx" (cdr size))
                            :x "0px" :y "0px")
@@ -155,70 +160,91 @@ Otherwise remove the image."
                                   (y0 (- isize (nth 1 coords)))
                                   (x1 (nth 2 coords))
                                   (y1 (- isize (nth 3 coords)))
-                                  (options (nthcdr 4 annot)))
-                             (apply (pcase (car a)
-                                      ('rect 'svg-rectangle)
-                                      ('oval 'svg-ellipse)
-                                      ;; ('poly 'svg-polygon)
-                                      ('text 'svg-text)
-                                      ('line 'svg-line))
+                                  (options (nthcdr 4 annot))
+                                  (svg-command-data (pcase (car a)
+                                                      ('rect (cons 'svg-rectangle
+                                                                   (list x0 y1 (- x1 x0) (- y0 y1))))
+                                                      ;; transformation for area from direct djvused annots
+                                                      ;; ('rect (list x0 (- y0 ywidth) xwidth ywidth))
+                                                      ('oval (cons 'svg-ellipse
+                                                                   (list (/ (+ x0 x1) 2)
+                                                                         (/ (+ y0 y1) 2)
+                                                                         (/ (- x1 x0) 2)
+                                                                         (/ (- y0 y1) 2))))
+                                                      ;; ('poly 'svg-polygon)
+                                                      ('text (cons 'svg-text
+                                                                   (list comment
+                                                                         :x x0
+                                                                         :y y0
+                                                                         :font-size (- y0 y1))))
+                                                      ('line (cons 'svg-line (list x0 y0 x1 y1))))))
+                             (apply (car svg-command-data)
                                     svg
-                                    (append (pcase (car a)
-                                              ;; transformation for area from annot-buffer annots
-                                              ('rect (list x0 y1 (- x1 x0) (- y0 y1)))
-                                              ('oval (list (/ (+ x0 x1) 2)
-                                                           (/ (+ y0 y1) 2)
-                                                           (/ (- x1 x0) 2)
-                                                           (/ (- y0 y1) 2)))
-                                              ('text (list comment
-                                                           :x x0
-                                                           :y y1
-                                                           :font-size (- y0 y1)))
-                                              ('line (list x0 y0 x1 y1)))
-                                              ;; transformation for area from direct djvused annots
-                                              ;; ('rect (list x0 (- y0 ywidth) xwidth ywidth))
-                                            (if-let (x (car (alist-get 'opacity options)))
-                                                (list :opacity (/ x 100.0))
-                                              (pcase (car a)
-                                                ((or 'text 'line) (list :opacity 1.0))
-                                                (_ (list :opacity 0.3))))
-                                            (when-let (x (car (alist-get 'hilite options)))
-                                              (list :fill-color (car (rassoc (format "%s" x) djvu-color-alist))))
-                                            (when-let (x (car (alist-get 'width options)))
-                                              (list :stroke-width x))
-                                            (if-let (x (car (alist-get 'lineclr options)))
-                                                (list :stroke-color (car (rassoc (format "%s" x) djvu-color-alist)))
-                                              (when (equal (car a) 'line)
-                                              (list :stroke-color "black")))
-                                            (when-let (x (car (alist-get 'textclr options)))
-                                              (list :fill x))))))))
+                                    (append
+                                     (cdr svg-command-data)
+                                     (if-let (x (car (alist-get 'opacity options)))
+                                         (list :opacity (/ x 100.0))
+                                       (pcase (car a)
+                                         ((or 'text 'line) (list :opacity 1.0))
+                                         (_ (list :opacity 0.3))))
+                                     (when-let (x (car (alist-get 'hilite options)))
+                                       (list :fill-color (car (rassoc (format "%s" x) djvu-color-alist))))
+                                     (when-let (x (car (alist-get 'width options)))
+                                       (list :stroke-width x))
+                                     (if-let (x (car (alist-get 'lineclr options)))
+                                         (list :stroke-color (car (rassoc (format "%s" x) djvu-color-alist)))
+                                       (when (equal (car a) 'line)
+                                         (list :stroke-color "black")))
+                                     (when-let (x (car (alist-get 'textclr options)))
+                                       (list :fill x))))
+                             (when (not (= (length url) 0))
+                               (push (list (cons 'rect
+                                                 (cons (cons (truncate x0) (truncate y1))
+                                                       (cons (truncate x1) (truncate y0))))
+                                           (intern (mapconcat 'number-to-string
+                                                              (mapcar 'truncate (list x0 y1 x1 y0)) "-"))
+                                           (list 'pointer 'hand 'help-echo url))
+                                     url-data))
+                             ))))
                       )))
-                       ;; (let* ((url (nth 1 annot))
-                       ;;        (comment (nth 2 annot))
-                       ;;        (area (mapcar (lambda (x) (* x scaling-factor))  (cdr (nth 3 annot))))
-                       ;;        ;; area y coord is defined from bottom up, while svg is top down
-                       ;;        ;; therefore we must add ywidth to y0 (hence we assign ywidth before y0)
-                       ;;        (xwidth (nth 2 area))
-                       ;;        (ywidth (nth 3 area))
-                       ;;        (x0 (nth 0 area))
-                       ;;        (y0 (- isize (+ (nth 1 area) ywidth)))
-                       ;;        (options (nthcdr 4 annot)))
-                       ;;   (svg-rectangle svg x0 y0 xwidth ywidth :fill "red" :opacity "0.5" :stroke "red")))))
-
+                ;; (let* ((url (nth 1 annot))
+                ;;        (comment (nth 2 annot))
+                ;;        (area (mapcar (lambda (x) (* x scaling-factor))  (cdr (nth 3 annot))))
+                ;;        ;; area y coord is defined from bottom up, while svg is top down
+                ;;        ;; therefore we must add ywidth to y0 (hence we assign ywidth before y0)
+                ;;        (xwidth (nth 2 area))
+                ;;        (ywidth (nth 3 area))
+                ;;        (x0 (nth 0 area))
+                ;;        (y0 (- isize (+ (nth 1 area) ywidth)))
+                ;;        (options (nthcdr 4 annot)))
+                ;;   (svg-rectangle svg x0 y0 xwidth ywidth :fill "red" :opacity "0.5" :stroke "red")))))
                 (djvu-set image
                           (append (list (djvu-ref page doc) isize)
                                   ;; Images are lists
                                   (svg-image svg
-                                             :map '(((rect . ((0 . 0) . (100 . 100))) area4 (:pointer hand)))
+                                             :map url-data
+                                             ;; :map '(((rect . ((0 . 0) . (100 . 100))) area4 (:pointer hand)))
                                              ))
-                          doc))))))
+                          doc)
+                (djvu-set hotspots url-data doc)
+                (djvu-ref hotspots doc)
+                )))))
     ;; Display image.
     (let ((hscroll (window-hscroll))
           buffer-read-only)
       (if (= (point-min) (point-max)) (insert " "))
       (put-text-property (point-min) (point-max)
                          'display (nthcdr 2 (djvu-ref image)))
-      (set-window-hscroll (selected-window) hscroll))))
+      (set-window-hscroll (selected-window) hscroll))
+    (dolist (x (djvu-ref hotspots))
+      (local-set-key
+       (vector (nth 1 x) 'mouse-1)
+       (lambda (event)
+         (interactive "@e")
+         (let ((hs-list (djvu-ref hotspots)))
+           (while (not (eq (posn-area (nth 1 event)) (nth 1 (car hs-list))))
+             (setq hs-list (cdr hs-list)))
+           (djvu-goto-page (string-to-number (substring (plist-get (nth 2 (car hs-list)) 'help-echo) 1)))))))))
 
 ;; Shorter verion of `djvu-image-rect' of original function in djvu.el. Possibly
 ;; cut off to much.
@@ -777,6 +803,7 @@ so that killing the current buffer kills all buffers visiting `djvu-doc'."
       ;; for which we called this hook in the first place, so that
       ;; other functions in this hook can do their job, too.
       (mapc 'kill-buffer (delq (current-buffer) buffers)))))
+
 (defun djvu-find-file (file &optional page view noselect noconfirm)
   "Read and edit Djvu FILE on PAGE.  Return Read buffer.
 If VIEW is non-nil start external viewer.
@@ -980,6 +1007,7 @@ from file."
     (unless noselect (switch-to-buffer (djvu-ref read-buf doc)))
     (djvu-ref read-buf doc)
     (djvu-restore)))
+
 (defun djvu-init-page (&optional page doc match)
   "Initialize PAGE for Djvu DOC.
 PAGE is re-initialized if we are already viewing it."
