@@ -1,4 +1,4 @@
-;;; djvu+.el --- Extend djvu.el
+;;; djvu3.el --- Extend djvu.el
 
 ;; Copyright (C) 2021 Free Software Foundation, Inc.
 
@@ -122,6 +122,7 @@ strings."
 ;;       (insert ")")
 ;;       (read (buffer-string)))))
 
+(makunbound 'djvu-image-mode-map)
 (define-minor-mode djvu-image-mode
   "Image display of current page."
   :lighter "Image"
@@ -405,7 +406,8 @@ Otherwise remove the image."
 ;; cut off to much.
 
 ;; THIS FUNCTION IS NOT USED IN DJVU3
-;; (defun djvu-image-rect (&optional event line)
+(defun djvu-image-rect (&optional event line)
+  (print "This message from `djvu-image-rect' can be neglected. How to unbind in djvu.el defined keymap?"))
 ;;   "For PPM image specified via EVENT mark rectangle by inverting bits."
 ;;   ;; FIXME: Can the following be implemented more efficiently in the
 ;;   ;; image display code?  Could this be useful for other packages, too?
@@ -1243,3 +1245,5 @@ PAGE is re-initialized if we are already viewing it."
   ;;     (put-text-property (point-min) (point-max)
   ;;                        'display (nthcdr 2 (djvu-ref image))))
   ;;   (image-flush old-image)))
+
+(provide 'djvu3)
