@@ -17,9 +17,9 @@
 ;; search functionality, and continue at last viewed page when revisiting a
 ;; file.
 
-;; TODO check `djvu2.el' for arrow-keybindings in djvu-image-mode map
+;; DONE check `djvu2.el' for arrow-keybindings in djvu-image-mode map
 ;; TODO try to make `djvu-image-invert' work
-;; TODO update `djvu-mouse-rect-area', `djvu-mouse-text-area-internal',
+;; DONE update `djvu-mouse-rect-area', `djvu-mouse-text-area-internal',
 ;;`djvu-mouse-line-area-arrow' and `djvu-mouse-line-area-internal' functions
 ;; (see `djvu2.el`)
 ;; DONE add clickable links by adding `:map' keyword to `create-image' as follows:
@@ -29,6 +29,42 @@
 (require 'djvu)
 (require 'svg)
 (require 'tablist)
+
+;;; EXTEND SVG WITH MARKERS (INCL. ARROWHEADS)
+
+(defun svg-marker (svg id width height &optional color reverse)
+  "Add a gradient with ID to SVG.
+TYPE is `linear' or `radial'.
+STOPS is a list of percentage/color pairs."
+  (svg--def
+   svg
+   (apply
+    'dom-node
+    'marker 
+    `((id . ,id)
+      (viewBox . "0 0 10 10")
+      (refX . 5)
+      (refY . 5)
+      ,(pcase id
+         ("arrow" `(markerWidth . ,width))
+         ("dot" `(markerWidth . ,width)))
+      ,(pcase id
+         ("arrow" `(markerHeight . ,height))
+         ("dot" `(markerHeight . ,height)))
+      ,(pcase id
+         ;; ("arrow" '(orient . auto-start-reverse))))
+         ("arrow" (if reverse
+                      '(orient . auto)
+                    '(orient . auto-start-reverse)))))
+    (pcase id
+      ("arrow" (list (dom-node 'path `((d . "M 0 0 L 10 5 L 0 10 z")
+                                       (fill . ,(or color "black"))))))
+      ("dot" (list (dom-node 'circle `((cx . 5)
+                                       (cy . 5)
+                                       (r . 5)
+                                       (fill . ,(or color "black"))))))))))
+
+;;; START OF DJVU-EXTENSION
 
 (defcustom djvu-restore-filename (if dotspacemacs-directory
                                      (concat dotspacemacs-directory ".djvu-view-restore")
@@ -86,6 +122,105 @@ strings."
 ;;       (insert ")")
 ;;       (read (buffer-string)))))
 
+(define-minor-mode djvu-image-mode
+  "Image display of current page."
+  :lighter "Image"
+  :keymap '(([drag-mouse-1]   . djvu-mouse-rect-area)
+            ([S-drag-mouse-1] . djvu-mouse-text-area)
+            ([C-drag-mouse-1] . djvu-mouse-text-area-pushpin)
+            ([drag-mouse-2]   . djvu-mouse-line-area)
+            ([S-drag-mouse-2] . djvu-mouse-line-area-horiz)
+            ([C-drag-mouse-2] . djvu-mouse-line-area-vert)
+            ([C-S-drag-mouse-2] . djvu-mouse-line-area-arrow)
+            ;;
+            ;; ([down-mouse-1]   . djvu-mouse-drag-track-area)
+            ;; ([S-down-mouse-1] . djvu-mouse-drag-track-area)
+            ;; ([C-down-mouse-1] . djvu-mouse-drag-track-area)
+            ;; ([down-mouse-2]   . (lambda (event) (interactive "e")
+            ;;                       (djvu-mouse-drag-track-area event t)))
+            ;; ([S-down-mouse-2] . (lambda (event) (interactive "e")
+            ;;                       (djvu-mouse-drag-track-area event 'horiz)))
+            ;; ([C-down-mouse-2] . (lambda (event) (interactive "e")
+            ;;                       (djvu-mouse-drag-track-area event 'vert)))
+            ;; ([C-S-down-mouse-2] . (lambda (event) (interactive "e")
+            ;;                         (djvu-mouse-drag-track-area event 'arrow)))
+            ;; FIXME: The following binding has no effect.  Why??
+            ([M-drag-mouse-1] . djvu-mouse-word-area)
+            ;; ([M-down-mouse-1] . djvu-mouse-drag-track-area)
+            ([drag-mouse-3]   . djvu-mouse-word-area) ; substitute
+            ;; ([down-mouse-3]   . djvu-mouse-drag-track-area) ; substitute
+            ;;
+            ("C-c m" . djvu-invert)
+            ("+" . djvu-image-zoom-in)
+            ("-" . djvu-image-zoom-out))
+
+  ;; Adopted from `doc-view-mode'
+  (image-mode-setup-winprops) ; record current scroll settings
+  ;; Don't scroll unless the user specifically asked for it.
+  (setq-local auto-hscroll-mode nil)
+
+  (if (and djvu-image-mode
+           (not (get-text-property (point-min) 'display)))
+      ;; Remember DPOS if we enable `djvu-image-mode'.
+      (djvu-set read-pos (let (djvu-image-mode)
+                           (djvu-read-dpos))))
+  (let ((tmp (and (not djvu-image-mode)
+                  (get-text-property (point-min) 'display))))
+    (djvu-image)
+    ;; Go to DPOS if we disable `djvu-image-mode'.
+    (if tmp (djvu-goto-read (djvu-ref read-pos)))))
+
+(defun djvu-event-to-area (event &optional dir)
+  "Convert mouse EVENT to Djvu area coordinates."
+  (let* ((e-start (event-start event))
+         (e-end   (event-end   event))
+         (_ (unless (and (posn-image e-start) (posn-image e-end))
+              (user-error "Area not over image")))
+         (start (posn-object-x-y e-start))
+         (end   (posn-object-x-y e-end))
+         (x1 (car start)) (y1 (cdr start)) (x2 (car end)) (y2 (cdr end))
+         (size (posn-object-width-height e-start))
+         (_ (if (equal size '(0 . 0))
+                (error "See Emacs bug#18839 (GNU Emacs 24.4)")))
+         (width  (/ (float (car (djvu-ref pagesize))) (car size)))
+         (height (/ (float (cdr (djvu-ref pagesize))) (cdr size)))
+         (area
+          (list (round (* (if (memq dir '(vert free arrow))
+                              x1 (min x1 x2))
+                          width))
+                (round (* (- (cdr size) (if (memq dir '(horiz free arrow))
+                                            y1 (max y1 y2)))
+                          height))
+                (round (* (if (memq dir '(vert free arrow))
+                              x2 (max x1 x2))
+                          width))
+                (round (* (- (cdr size) (if  (memq dir '(horiz free arrow))
+                                            y2 (min y1 y2)))
+                          height)))))
+    (djvu-set read-pos (djvu-mean-dpos area))
+    area))
+
+(defun djvu-mouse-line-area-arrow (event)
+  (interactive "e")
+  (djvu-mouse-line-area-internal event 'arrow))
+
+(defun djvu-mouse-line-area-internal (event &optional dir)
+  (djvu-with-event-buffer event
+    (let* ((line (djvu-event-to-area event dir))
+           (color (djvu-interactive-color djvu-color-line))
+           (text (read-string (format "(%s) Line: " color)
+                              nil nil nil djvu-inherit-input-method)))
+      (cond ((eq dir 'horiz)
+             (setq line (list (nth 0 line) (nth 1 line)
+                              (nth 2 line) (nth 1 line))))
+            ((eq dir 'vert)
+             (setq line (list (nth 0 line) (nth 1 line)
+                              (nth 0 line) (nth 3 line)))))
+      (if (eq dir 'arrow)
+          (djvu-line-area nil text line nil t djvu-line-width djvu-color-line)
+        (djvu-line-area nil text line nil nil djvu-line-width djvu-color-line))
+      (djvu-set image nil)
+      (djvu-image nil t))))
 
 ;; Extended version of `djvu-image' from original djvu.el. Implements display of
 ;; annotations with svg.el and embedding the ppm image in an svg image. Also
@@ -137,6 +272,7 @@ Otherwise remove the image."
                      (scaling-factor (/ isize (float (cdr (djvu-ref pagesize doc)))))
                      (svg (svg-create (car size) (cdr size)))
                      url-data)
+                (svg-marker svg "arrow" 8 8 "black" t)
                 (svg-embed svg (image-property ppm :data) "image/x-portable-bitmap" t
                            :width (format "%spx" (car size)) :height (format "%spx" (cdr size))
                            :x "0px" :y "0px")
@@ -202,7 +338,10 @@ Otherwise remove the image."
                                        (when (equal (car a) 'line)
                                          (list :stroke-color "black")))
                                      (when-let (x (car (alist-get 'textclr options)))
-                                       (list :fill x))))
+                                       (list :fill x))
+                                     (when (assoc 'arrow options)
+                                       (list :marker-end "url(#arrow)"))
+                                     ))
                              (when (not (= (length url) 0))
                                (push (list (cons 'rect
                                                  (cons (cons (truncate x0) (truncate y1))
@@ -265,27 +404,28 @@ Otherwise remove the image."
 ;; Shorter verion of `djvu-image-rect' of original function in djvu.el. Possibly
 ;; cut off to much.
 
-(defun djvu-image-rect (&optional event line)
-  "For PPM image specified via EVENT mark rectangle by inverting bits."
-  ;; FIXME: Can the following be implemented more efficiently in the
-  ;; image display code?  Could this be useful for other packages, too?
-  (if event
-      (let* ((e-start (event-start event))
-             (e-end   (event-end   event))
-             (_ (unless (and (posn-image e-start) (posn-image e-end))
-                  (user-error "Area not over image")))
-             (start (posn-object-x-y e-start))
-             (end   (posn-object-x-y e-end))
-             (x1 (if line (car start)
-                   (min (car start) (car end))))
-             (y1 (if line (cdr start)
-                   (min (cdr start) (cdr end))))
-             (x2 (if line (car end)
-                   (max (car start) (car end))))
-             (y2 (if line (cdr end)
-                   (max (cdr start) (cdr end))))
-             (image (copy-sequence (nth 6 (djvu-ref image))))
-             ))))
+;; THIS FUNCTION IS NOT USED IN DJVU3
+;; (defun djvu-image-rect (&optional event line)
+;;   "For PPM image specified via EVENT mark rectangle by inverting bits."
+;;   ;; FIXME: Can the following be implemented more efficiently in the
+;;   ;; image display code?  Could this be useful for other packages, too?
+;;   (if event
+;;       (let* ((e-start (event-start event))
+;;              (e-end   (event-end   event))
+;;              (_ (unless (and (posn-image e-start) (posn-image e-end))
+;;                   (user-error "Area not over image")))
+;;              (start (posn-object-x-y e-start))
+;;              (end   (posn-object-x-y e-end))
+;;              (x1 (if line (car start)
+;;                    (min (car start) (car end))))
+;;              (y1 (if line (cdr start)
+;;                    (min (cdr start) (cdr end))))
+;;              (x2 (if line (car end)
+;;                    (max (car start) (car end))))
+;;              (y2 (if line (cdr end)
+;;                    (max (cdr start) (cdr end))))
+;;              (image (copy-sequence (nth 6 (djvu-ref image))))
+;;              ))))
     ;;          ;; (_ (unless (string-match "\\`P6\n\\([0-9]+\\) +\\([0-9]+\\)\n\\([0-9]+\\)\n" image)
     ;;          ;;      (error "Not a PPM image")))
     ;;          (width (djvu-match-number 1 image))
@@ -683,68 +823,8 @@ one using completion framework."
     (setq-local tabulated-list-entries djvu-tablist)
     (tabulated-list-print)))
 
-;; Arrowhead function from djvu2.el
 
-;; (defun djvu-annot-arrow-head (annot-geom-list image-size scaling-factor color)
-;;   (let* ((scaled-list (mapcar (lambda (x) (* x scaling-factor)) (cdr annot-geom-list)))
-;;          (rot-rad (let* ((dy (- (- image-size (nth 3 scaled-list)) (- image-size (nth 1 scaled-list))))
-;;                          (dx (- (nth 2 scaled-list) (nth 0 scaled-list)))
-;;                          (angle (atan (/ dy dx))))
-;;                     (if (< dx 0)
-;;                         (+ angle 3.14)
-;;                       angle)))
-;;          (rot-deg (/ (* rot-rad 180) 3.14)))
-;;     (format " -draw \"stroke %s fill %s translate %s,%s rotate %s path 'M 0,0  l -15,-5  -0,+10  +15,-5 z'\""
-;;             color
-;;             color
-;;             (nth 2 scaled-list)
-;;             (- image-size (nth 3 scaled-list))
-;;             rot-deg)))
-
-(defun djvu-match-area (match image-size scaling-factor)
-  (let* ((scaled-list (mapcar (lambda (x) (* x scaling-factor)) match))
-         (x1 (nth 0 scaled-list))
-         (y1 (- image-size (nth 1 scaled-list)))
-         (x2 (nth 2 scaled-list))
-         (y2 (- image-size (nth 3 scaled-list))))
-    (format "%s,%s,%s,%s"
-            x1
-            y1
-            x2
-            y2)))
-
-(defun djvu-match-draw (match image-size scaling-factor)
-  (let ((convert-args ""))
-    (setq convert-args
-          (concat convert-args
-                  " -fill" " maroon "
-                  "-draw 'fill-opacity " "0.5"
-                  " rectangle " (djvu-match-area match image-size scaling-factor)
-                  "'"))
-    (when convert-args
-      (call-shell-region
-       (point-min)
-       (point-max)
-       (concat "convert -" convert-args " -")
-       ;; (message (concat "convert -" convert-args " -"))
-       t
-       t))))
-
-(defun djvu-invert-draw (image-size scaling-factor)
-  (let ((convert-args ""))
-    (setq convert-args
-          (concat convert-args
-                  " -channel" " RGB "
-                  "-negate "))
-    (when convert-args
-      (call-shell-region
-       (point-min)
-       (point-max)
-       (concat "convert -" convert-args " -")
-       ;; (message (concat "convert -" convert-args " -"))
-       t
-       t))))
-
+;;; Invert toggle from djvu2.el
 (defun djvu-toggle-invert ()
   (interactive)
   (setq djvu-invert (if djvu-invert
