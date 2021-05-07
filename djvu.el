@@ -18,7 +18,7 @@
 ;; file.
 
 ;; TODO check `djvu2.el' for arrow-keybindings in djvu-image-mode map
-;; TODO merge `djvu2.el' its `djvu-image' function
+;; TODO try to make `djvu-image-invert' work
 ;; TODO update `djvu-mouse-rect-area', `djvu-mouse-text-area-internal',
 ;;`djvu-mouse-line-area-arrow' and `djvu-mouse-line-area-internal' functions
 ;; (see `djvu2.el`)
@@ -124,6 +124,12 @@ Otherwise remove the image."
                                          (djvu-ref file doc))))
               (unless (zerop status)
                 (error "Ddjvu error %s" status))
+              ;; (let* ((pre-im (create-image (buffer-substring-no-properties
+              ;;                            (point-min) (point-max))
+              ;;                           'pbm t))
+              ;;        (post-im (djvu-image-invert pre-im))
+              ;;        (ppm (create-image post-im
+              ;;                           'pbm t))
               (let* ((ppm (create-image (buffer-substring-no-properties
                                          (point-min) (point-max))
                                         'pbm t))
@@ -1098,3 +1104,62 @@ PAGE is re-initialized if we are already viewing it."
     (setq buffer-read-only t)
     (djvu-image nil t match)))
 
+(defun djvu-image-invert (im)
+  "For PPM image specified via EVENT mark rectangle by inverting bits."
+  ;; FIXME: Can the following be implemented more efficiently in the
+  ;; image display code?  Could this be useful for other packages, too?
+  (let* (
+         ;; (image (copy-sequence (nth 6 (djvu-ref image))))
+         (image (image-property im :data))
+         (_ (unless (string-match "\\`P6\n\\([0-9]+\\) +\\([0-9]+\\)\n\\([0-9]+\\)\n" image)
+              (error "Not a PPM image")))
+         (width (djvu-match-number 1 image))
+         (height (djvu-match-number 2 image))
+         (x1 0)
+         (y1 0)
+         (x2 width)
+         (y2 height)
+         (depth (djvu-match-number 3 image))
+         (i0 (match-end 0))
+         (old-image (get-text-property (point-min) 'display)))
+    (unless (= depth 255)
+      (error "Cannot handle depth %d" depth))
+    (cl-flet ((invert (i imax)
+                      (while (< i imax)
+                        ;; Invert bits
+                        (aset image i (- 255 (aref image i)))
+                        (setq i (1+ i)))))
+      (while (< y1 y2)
+        ;; i = i0 + 3 * (y * width + x)
+        (let ((i (+ i0 (* 3 (+ x1 (* width y1))))))
+          (invert i (+ i (* 3 (- x2 x1)))))
+        (setq y1 (1+ y1)))
+      (if (< (abs (- x2 x1)) (abs (- y2 y1)))
+          (let ((dx (/ (- x2 x1) (float (- y2 y1))))
+                (y y1) (step (cl-signum (- y2 y1))))
+            (while (/= y y2)
+              ;; x = (y - y1) * dx + x1
+              (let ((i (+ i0 (* 3 (+ (* y width) x1
+                                     (round (* (- y y1) dx)))))))
+                (invert i (+ i 3)))
+              (setq y (+ y step))))
+        (let ((dy (/ (- y2 y1) (float (- x2 x1))))
+              (x x1) (step (cl-signum (- x2 x1))))
+          (while (/= x x2)
+            ;; y = (x - x1) * dy + y1
+            (let ((i (+ i0 (* 3 (+ x (* (+ y1 (round (* (- x x1) dy)))
+                                        width))))))
+              (invert i (+ i 3)))
+            (setq x (+ x step)))))
+      image)))
+  ;; (with-silent-modifications
+  ;;   (put-text-property
+  ;;    (point-min) (point-max) 'display
+  ;;    (create-image image 'pbm t)))
+  ;; (image-flush old-image)
+  ;; ;; Restore unmodified image
+  ;; (let ((old-image (get-text-property (point-min) 'display)))
+  ;;   (with-silent-modifications
+  ;;     (put-text-property (point-min) (point-max)
+  ;;                        'display (nthcdr 2 (djvu-ref image))))
+  ;;   (image-flush old-image)))
