@@ -91,7 +91,7 @@ strings."
 ;; annotations with svg.el and embedding the ppm image in an svg image. Also
 ;; adds update flag to allow for immediate update after creating annotation.
 
-(defun djvu-image (&optional isize update)
+(defun djvu-image (&optional isize update match)
   "If `djvu-image-mode' is enabled, display image of current Djvu page.
 Otherwise remove the image."
   ;; Strange!  `djvu-image' modifies the buffer (its text properties).
@@ -207,6 +207,16 @@ Otherwise remove the image."
                                      url-data))
                              ))))
                       )))
+                (when match
+                  (let* ((coords (mapcar (lambda (x) (* x scaling-factor)) match))
+                         (x0 (nth 0 coords))
+                         (y0 (- isize (nth 1 coords)))
+                         (x1 (nth 2 coords))
+                         (y1 (- isize (nth 3 coords))))
+                    (apply 'svg-rectangle svg (append
+                                               (list x0 y1 (- x1 x0) (- y0 y1))
+                                               (list :fill-color "green")
+                                               (list :opacity 0.5)))))
                 ;; (let* ((url (nth 1 annot))
                 ;;        (comment (nth 2 annot))
                 ;;        (area (mapcar (lambda (x) (* x scaling-factor))  (cdr (nth 3 annot))))
@@ -1086,5 +1096,5 @@ PAGE is re-initialized if we are already viewing it."
         (djvu-goto-read dpos)))
     (set-buffer-modified-p nil)
     (setq buffer-read-only t)
-    (djvu-image nil match)))
+    (djvu-image nil t match)))
 
