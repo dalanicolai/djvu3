@@ -17,7 +17,7 @@
   
   The main features that this package implements are:
   - annotation rendering features using =svg.el= and =clickable links=
-  - an =marker extension= to =svg.el= for providing =arrowheads= (or other types
+  - a =marker extension= to =svg.el= for providing =arrowheads= (or other types
     of markers)
   - fast occur search function, similar to that of the [[https://github.com/politza/pdf-tools][pdf-tools]] package.
   - a quite fancy keyboard annotation function (=djvu-keyboard-annot=)
@@ -29,5 +29,18 @@
  Simply load the file =djvu3.el= after =djvu.el= (djvu3.el will
  load =djvu.el= automatically if it is found in the load path)
 
+** Usage
+   Instructions for usage are found in the preliminary comments in the djvu.el
+   file itself. Keybindings (e.g. for annotations) can be looked up by typing
+   =M-x describe-keymap RET djvu-image-mode-map=. Additionally =C-h m= shows mode
+   keybindings is active (i.e. when visiting a djvu-file).
+
+   Additionally the package provides the following interactive functions (called
+   via =M-x=):
+   - =djvu-occur=
+   - =djvu-keyboard-annot=
+   and support for:
+   - =imenu=
+   
 *** Spacemacs
- The layer can very easily be installed via the [[https://github.com/dalanicolai/djvu-layer][djvu-layer]].
+ This package can very easily be installed via the [[https://github.com/dalanicolai/djvu-layer][djvu-layer]].
