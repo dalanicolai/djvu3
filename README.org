@@ -35,7 +35,7 @@
    =M-x describe-keymap RET djvu-image-mode-map=. Additionally =C-h m= shows mode
    keybindings is active (i.e. when visiting a djvu-file).
 
-   Additionally the package provides the following interactive functions (called
+   In particular, the package provides the following interactive functions (called
    via =M-x=):
    - =djvu-occur=
    - =djvu-keyboard-annot=
@@ -44,3 +44,20 @@
    
 *** Spacemacs
  This package can very easily be installed via the [[https://github.com/dalanicolai/djvu-layer][djvu-layer]].
+
+** Comments
+   - *text annotations*: The font ratio in SVG is fixed. Therefore, the text
+     size is determined by fitting the complete comment either horizontally or
+     vertically inside the annotation area.
+
+* Keybindings
+| Key Binding        | Description                                            |
+|--------------------+--------------------------------------------------------|
+| ~SPC m h~          | keyboard highlight                                     |
+| ~mouse-1-drag~     | highlight                                              |
+| ~S-mouse-1-drag~   | text annotation ([[https://github.com/dalanicolai/djvu3#comments][comment]])                              |
+| ~C-mouse-1-drag~   | text pushpin (rendering pushpin not, yet, implemented) |
+| ~mouse-2-drag~     | line                                                   |
+| ~S-mouse-2-drag~   | horizontal line                                        |
+| ~C-mouse-2-drag~   | vertical line                                          |
+| ~C-S-mouse-2-drag~ | arrow                                                  |

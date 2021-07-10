@@ -144,30 +144,29 @@ strings."
 (define-minor-mode djvu-image-mode
   "Image display of current page."
   :lighter "Image"
-  :keymap '(([drag-mouse-1]   . djvu-mouse-rect-area)
+  :keymap '(([down-mouse-1]   . djvu-mouse-drag-track-area)
+            ([S-down-mouse-1] . djvu-mouse-drag-track-area)
+            ([C-down-mouse-1] . djvu-mouse-drag-track-area)
+            ([down-mouse-2]   . (lambda (event) (interactive "e")
+                                  (djvu-mouse-drag-track-area event t)))
+            ([S-down-mouse-2] . (lambda (event) (interactive "e")
+                                  (djvu-mouse-drag-track-area event 'horiz)))
+            ([C-down-mouse-2] . (lambda (event) (interactive "e")
+                                  (djvu-mouse-drag-track-area event 'vert)))
+            ([C-S-down-mouse-2] . (lambda (event) (interactive "e")
+                                    (djvu-mouse-drag-track-area event 'arrow)))
+            ([drag-mouse-1]   . djvu-mouse-rect-area)
             ([S-drag-mouse-1] . djvu-mouse-text-area)
             ([C-drag-mouse-1] . djvu-mouse-text-area-pushpin)
             ([drag-mouse-2]   . djvu-mouse-line-area)
             ([S-drag-mouse-2] . djvu-mouse-line-area-horiz)
             ([C-drag-mouse-2] . djvu-mouse-line-area-vert)
             ([C-S-drag-mouse-2] . djvu-mouse-line-area-arrow)
-            ;;
-            ;; ([down-mouse-1]   . djvu-mouse-drag-track-area)
-            ;; ([S-down-mouse-1] . djvu-mouse-drag-track-area)
-            ;; ([C-down-mouse-1] . djvu-mouse-drag-track-area)
-            ;; ([down-mouse-2]   . (lambda (event) (interactive "e")
-            ;;                       (djvu-mouse-drag-track-area event t)))
-            ;; ([S-down-mouse-2] . (lambda (event) (interactive "e")
-            ;;                       (djvu-mouse-drag-track-area event 'horiz)))
-            ;; ([C-down-mouse-2] . (lambda (event) (interactive "e")
-            ;;                       (djvu-mouse-drag-track-area event 'vert)))
-            ;; ([C-S-down-mouse-2] . (lambda (event) (interactive "e")
-            ;;                         (djvu-mouse-drag-track-area event 'arrow)))
             ;; FIXME: The following binding has no effect.  Why??
+            ([M-down-mouse-1] . djvu-mouse-drag-track-area)
             ([M-drag-mouse-1] . djvu-mouse-word-area)
-            ;; ([M-down-mouse-1] . djvu-mouse-drag-track-area)
+            ([down-mouse-3]   . djvu-mouse-drag-track-area) ; substitute
             ([drag-mouse-3]   . djvu-mouse-word-area) ; substitute
-            ;; ([down-mouse-3]   . djvu-mouse-drag-track-area) ; substitute
             ;;
             ("C-c m" . djvu-invert)
             ("+" . djvu-image-zoom-in)
@@ -342,7 +341,8 @@ Otherwise remove the image."
                                                                    (list comment
                                                                          :x x0
                                                                          :y y0
-                                                                         :font-size (- y0 y1))))
+                                                                         :font-size (apply 'min (list (/ (- x1 x0) (length comment) 0.5)
+                                                                                                      (- y0 y1))))))
                                                       ('line (cons 'svg-line (list x0 y0 x1 y1))))))
                              (apply (car svg-command-data)
                                     svg
@@ -809,10 +809,16 @@ one using completion framework."
                                            text))))))))
     tablist))
 
+(defun djvu-occur-show-entry (id)
+  (interactive (list (tabulated-list-get-id)))
+  (with-selected-window (get-buffer-window target-buffer)
+    (djvu-goto-page (plist-get id :page) nil (plist-get id :edges))))
+
 (defvar djvu-occur-mode-map
   (let ((kmap (make-sparse-keymap)))
     (set-keymap-parent kmap tablist-mode-map)
     (define-key kmap (kbd "RET") 'tablist-find-entry)
+    (define-key kmap (kbd "M-RET") 'djvu-occur-show-entry)
     (define-key kmap (kbd "C-o") 'tablist-find-entry)
     ;;     (define-key kmap (kbd "SPC") 'djvu-occur-view-occurrence)
     ;;     (define-key kmap (kbd "C-c C-f") 'next-error-follow-minor-mode)
