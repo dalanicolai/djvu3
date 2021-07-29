@@ -24,6 +24,7 @@
   - an imenu index function to enable imenu navigation
   - document restore function to open the document at the last location of the
     previous session
+  - transient for quickly adding metadata (=djvu-edit-metadata=)
 
 ** Installation
  Simply load the file =djvu3.el= after =djvu.el= (djvu3.el will
@@ -41,6 +42,7 @@
    - =djvu-keyboard-annot=
    and support for:
    - =imenu=
+   - =djvu-edit-metadata=
    
 *** Spacemacs
  This package can very easily be installed via the [[https://github.com/dalanicolai/djvu-layer][djvu-layer]].

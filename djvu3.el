@@ -44,6 +44,7 @@
 (require 'djvu)
 (require 'svg)
 (require 'tablist)
+(require 'transient)
 
 ;;; EXTEND SVG WITH MARKERS (INCL. ARROWHEADS)
 
@@ -746,6 +747,61 @@ one using completion framework."
 ;;                 "djvutxt -detail=word 'The Art of Experimental Physics - Preston, Daryl W_.djvu'")
 ;;                ")")))
 
+(defun djvu--parse-metadata ()
+  (interactive)
+  (with-current-buffer (djvu-ref shared-buf djvu-doc)
+    (unless (string= (buffer-string) "")
+      (goto-char (point-min))
+      (mapcar (lambda (field)
+                (concat (symbol-name (car field))
+                        "="
+                        (cadr field)))
+              (cdr (read (current-buffer)))))))
+
+(defun djvu--write-metadata (args)
+  (interactive (list (transient-args 'djvu-edit-metadata )))
+  (let ((temp-meta-file (make-temp-file "meta")))
+    (with-temp-file temp-meta-file
+      (dolist (x (nreverse args))
+        (let ((field-cons (split-string x "=")))
+          (insert (car field-cons))
+          (insert " ")
+          (insert (format "\"%s\"" (cadr field-cons)))
+          (insert "\n"))))
+    (shell-command (format "djvused %s -e 'set-meta %s; save'"
+                           ;; (transient-arg-value "title=" args))
+                           (shell-quote-argument (buffer-file-name))
+                           (shell-quote-argument temp-meta-file))))
+  (sit-for 5)
+  (djvu-revert-buffer)
+  (djvu-switch-shared))
+
+(transient-define-prefix djvu-edit-metadata ()
+  "Set metadata of djvu document."
+  ["Fields"
+   [("a" "author" "author=")
+    ("b" "booktitle" "booktitle=" )
+    ("t" "title" "title=")
+    ("n" "note" "note=")
+    ("y" "year" "year=")]]
+   [("w" "Write metadata" djvu--write-metadata)
+    ("q" "Quit" transient-quit-one)]
+   (interactive)
+   (djvu-switch-shared)
+   (goto-char (point-min))
+   (let ((metadata (search-forward "(metadata" nil t))
+         xmp)
+     (goto-char (point-min))
+     (when (search-forward "(xmp" nil t)
+       (setq xmp t))
+     (if (or metadata xmp)
+         (when (y-or-n-p (format "Document already contains %s. Editing the metadata will erase existing tags. Continue anyway? "
+                                 (cond ((and metadata xmp)  "metadata and xmp tags")
+                                       (metadata            "metadata tag")
+                                       (xmp                 "xmp tag"))))
+           (transient-setup 'djvu-edit-metadata nil nil :value (djvu--parse-metadata)))
+       (transient-setup 'djvu-edit-metadata nil nil :value (djvu--parse-metadata)))))
+
 ;; (defun djvu-occur-extract-pages-text ()
 ;;   (let ((i 0)
 ;;         text-pages
@@ -1220,3 +1276,5 @@ PAGE is re-initialized if we are already viewing it."
     (djvu-image nil t match)))
 
 (provide 'djvu3)
+
+;;; djvu3.el ends here
