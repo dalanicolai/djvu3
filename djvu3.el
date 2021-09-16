@@ -82,7 +82,8 @@ STOPS is a list of percentage/color pairs."
 
 ;;; START OF DJVU-EXTENSION
 
-(defcustom djvu-restore-filename (if dotspacemacs-directory
+(defcustom djvu-restore-filename (if (and (fboundp 'dotspacemacs-directory)
+                                          dotspacemacs-directory)
                                      (concat dotspacemacs-directory ".djvu-view-restore")
                                    ".djvu-view-restore")
   "Filename to save the last known pdf position."
@@ -926,16 +927,25 @@ one using completion framework."
 ;;; Djvu imenu
 
 (defun djvu-imenu-create-index ()
-  (with-current-buffer (djvu-ref bookmarks-buf djvu-doc)
-    (goto-char (point-max))
-    (let (alist)
-      (while (re-search-backward "\"#p*\\([0-9]+\\).*\"" nil t)
-        (let ((pagenumber (string-to-number (match-string-no-properties 1))))
-          (re-search-backward "(\"\\(.+\\)\"")
-          (push (cons (match-string-no-properties 1) pagenumber) alist)))
-      alist)))
+  (or imenu--index-alist
+      (setq-local imenu--index-alist
+                  (with-current-buffer (djvu-ref bookmarks-buf djvu-doc)
+                    (goto-char (point-max))
+                    (let (alist)
+                      (while (re-search-backward "\"#p*\\([0-9]+\\).*\"" nil t)
+                        (let ((pagenumber (string-to-number (match-string-no-properties 1))))
+                          (re-search-backward "(\"\\(.+\\)\"")
+                          (push (cons (match-string-no-properties 1) pagenumber) alist)))
+                      alist)))))
 
-(add-hook 'djvu-read-mode-hook (lambda () (setq imenu-create-index-function 'djvu-imenu-create-index)))
+(defun djvu-imenu-goto-index (_index-name position)
+  "A wrapper of `djvu-goto-page' that is to be used as `imenu-default-goto-function'.
+This functions ignores the first argument passed to it."
+  (djvu-goto-page position))
+
+(add-hook 'djvu-read-mode-hook (lambda ()
+                                 (setq imenu-create-index-function 'djvu-imenu-create-index)
+                                 (setq imenu-default-goto-function 'djvu-imenu-goto-index)))
 
 
 ;;; djvu-restore
